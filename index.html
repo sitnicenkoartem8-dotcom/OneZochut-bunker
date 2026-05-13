@@ -12,7 +12,7 @@
       <div>
         <p class="eyebrow">мультиплеерная браузерная игра</p>
         <h1>Бункер: Ван Зошит</h1>
-        <p class="subtitle">Лобби, карты, бредовые Помидоры, рабочие способности, бункер, катастрофа, голосование и лорные события в стиле One Zoshyt.</p>
+        <p class="subtitle">Сайт не имеет никакого отношения к канону.</p>
       </div>
       <div class="hero-card">
         <span class="glitch">ВЗ</span>
@@ -35,10 +35,13 @@
             <input id="roomCodeInput" maxlength="8" placeholder="Например: Z482" />
           </label>
         </div>
-        <div class="actions">
+        <div class="actions setup-actions">
           <button id="createRoomBtn" class="primary">Создать комнату</button>
           <button id="joinRoomBtn">Войти по коду</button>
+          <button id="personalizationBtn" type="button">🎭 Персонализация</button>
+          <button id="musicToggleBtn" type="button">♫ Музыка: выкл</button>
         </div>
+        <div id="profilePreview" class="profile-preview"></div>
         <details class="rules-preview">
           <summary>Что работает в этой версии?</summary>
           <ul>
@@ -47,9 +50,11 @@
             <li>Игрок видит свои карты сразу после генерации, но для остальных они закрыты.</li>
             <li>В каждом круге можно раскрыть любую карту, а не строго по очереди.</li>
             <li>Рабочие кнопки Помидоров: защита, кража голосов, заморозка, дуэль, перемешивание багажа, омоложение и т.д.</li>
-            <li>События раунда теперь реально меняют игру: места в бункере, мутации, дебаффы, раскрытия, блокировку Помидоров.</li>
-            <li>Новая карта “Характер” и замена “Секрета” на “Фобию”.</li>
+            <li>События отключены первые 3 круга, потом шанс появления и проценты редкостей настраиваются при создании лобби.</li>
+            <li>События реально меняют игру: места в бункере, мутации, пол персонажей, картофельные баффы/дебаффы, раскрытия и блокировку Помидоров.</li>
+            <li>Новая карта “Характер”, карта “Пол и потомство”, фобии, негативные пункты и анализ шансов выживания.</li>
             <li>Отдельные вкладки: мои карты, таблица игроков, катастрофа, бункер, голосование, эффекты и лог.</li>
+            <li>Голосование теперь открывается не всегда: автоматически с заданного круга или досрочно, если за старт проголосует нужный процент игроков.</li>
           </ul>
         </details>
       </section>
@@ -100,6 +105,10 @@
             <span>Карты</span>
             <strong id="cardsStateText">—</strong>
           </div>
+          <div class="quick-stat">
+            <span>Голосование</span>
+            <strong id="votePhaseText">—</strong>
+          </div>
         </section>
 
         <nav class="tabbar panel" aria-label="Разделы игры">
@@ -107,6 +116,7 @@
           <button class="tab-btn" data-tab="tableTab">Таблица игроков</button>
           <button class="tab-btn" data-tab="storyTab">Катастрофа</button>
           <button class="tab-btn" data-tab="bunkerTab">Бункер</button>
+          <button class="tab-btn" data-tab="survivalTab">Анализ выживания</button>
           <button class="tab-btn" data-tab="voteTab">Голосование</button>
           <button class="tab-btn" data-tab="effectsTab">Эффекты</button>
           <button class="tab-btn" data-tab="logTab">Лог</button>
@@ -193,6 +203,20 @@
           </div>
         </section>
 
+        <section id="survivalTab" class="tab-view">
+          <div class="panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">процент выживания</p>
+                <h3>Анализ команды для бункера</h3>
+              </div>
+              <button id="analyzeSurvivalBtn" class="primary">Пересчитать шанс</button>
+            </div>
+            <p class="muted">Система смотрит на живых игроков, вместимость бункера, катастрофу, здоровье, профессию, навыки, фобии, потомство, багаж и общие проблемы. Это не “истина”, а аргумент для спора.</p>
+            <div id="survivalBox" class="survival-box"></div>
+          </div>
+        </section>
+
         <section id="voteTab" class="tab-view">
           <div class="panel">
             <div class="section-heading">
@@ -200,9 +224,15 @@
                 <p class="eyebrow">совет бункера</p>
                 <h3>Голосование</h3>
               </div>
-              <button id="eliminateTopBtn" class="danger">Выгнать лидера голосования</button>
+              <div class="vote-actions">
+                <button id="requestStartVoteBtn">Предложить голосование сейчас</button>
+                <button id="forceStartVoteBtn" class="primary hidden">Начать голосование сейчас</button>
+                <button id="closeVotingBtn" class="hidden">Закрыть голосование</button>
+                <button id="eliminateTopBtn" class="danger">Выгнать лидера голосования</button>
+              </div>
             </div>
-            <p class="muted">Нажми кнопку игрока, чтобы проголосовать против него. Голоса и направления видны всем. Помидоры могут красть голоса, запрещать голосовать против игрока или спасать от вылета.</p>
+            <p class="muted">Голосование не включено постоянно. Обычно сначала идут круги раскрытия, а совет бункера открывается автоматически с указанного круга. Но игроки могут досрочно начать голосование: если нужный процент живых игроков нажмёт “Предложить голосование сейчас”, оно откроется само.</p>
+            <div id="voteControlBox" class="vote-control-box"></div>
             <div id="voteTargets" class="vote-targets"></div>
             <h4>Итог голосов</h4>
             <div id="voteResults" class="vote-results"></div>
@@ -238,6 +268,52 @@
     </main>
   </div>
 
+  <div id="profileModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card panel profile-modal-card">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">персонализация</p>
+          <h3>Аватар, тема и звуки</h3>
+        </div>
+        <button id="closeProfileBtn" class="danger-light">Закрыть</button>
+      </div>
+      <p class="muted">Выбери готовую аватарку из загруженных изображений. Они уже подогнаны под квадратный формат, чтобы нормально смотреться в лобби, таблице игроков и голосовании.</p>
+      <div class="form-grid settings-grid">
+        <label>
+          Тема сайта
+          <select id="themeSelect">
+            <option value="dark">Тёмная тема</option>
+            <option value="light">Белая тема</option>
+          </select>
+        </label>
+        <label>
+          Цвет акцента
+          <select id="accentSelect">
+            <option value="pink">Розовый Ван Зошит</option>
+            <option value="purple">Фиолетовый артефакт</option>
+            <option value="green">Кислотный помидор</option>
+            <option value="blue">Холодная вода</option>
+            <option value="orange">Огненный пердёж</option>
+          </select>
+        </label>
+      </div>
+      <h4>Аватарка</h4>
+      <div id="avatarGrid" class="avatar-grid"></div>
+      <div class="sound-settings">
+        <label class="checkline">
+          <input id="sfxToggleInput" type="checkbox" checked />
+          Звуки кнопок и действий
+        </label>
+        <label class="checkline">
+          <input id="musicToggleInput" type="checkbox" />
+          Спокойная фоновая chiptune-музыка в меню
+        </label>
+        <p class="muted">Треков из игр внутри нет: вместо этого сайт генерирует лёгкую тихую мелодию сам, без аудиофайлов. Позже можно заменить на свой разрешённый mp3.</p>
+      </div>
+      <button id="saveProfileBtn" class="primary">Сохранить персонализацию</button>
+    </div>
+  </div>
+
   <div id="settingsModal" class="modal hidden" role="dialog" aria-modal="true">
     <div class="modal-card panel">
       <div class="section-heading">
@@ -261,16 +337,86 @@
           <input id="revealLimitInput" type="number" min="1" max="3" value="1" />
         </label>
         <label>
+          Голосование открывается с круга
+          <input id="votingStartsAfterInput" type="number" min="1" max="10" value="3" />
+        </label>
+        <label>
+          Процент для досрочного голосования
+          <input id="earlyVotePercentInput" type="number" min="50" max="100" value="70" />
+        </label>
+        <label>
+          Шанс появления события после 3-го круга (%)
+          <input id="eventChanceInput" type="number" min="0" max="100" value="30" />
+        </label>
+        <label>
+          Вес обычных событий (%)
+          <input id="eventCommonInput" type="number" min="0" max="100" value="85" />
+        </label>
+        <label>
+          Вес редких событий (%)
+          <input id="eventRareInput" type="number" min="0" max="100" value="12" />
+        </label>
+        <label>
+          Вес супер-редких событий (%)
+          <input id="eventSuperInput" type="number" min="0" max="100" value="3" />
+        </label>
+        <label>
+          Вес легендарных событий (%)
+          <input id="eventLegendaryInput" type="number" min="0" max="100" value="0" />
+        </label>
+        <label>
           Режим бреда
           <select id="memeModeSelect">
             <option value="normal">Нормальный: меньше мемов, больше выживания</option>
             <option value="meme" selected>Мемный: приколы + нормальная игра</option>
+            <option value="adult">18+: нормальная игра + взрослые мемы</option>
             <option value="chaos">Бредовый хаос: события и карты сходят с ума</option>
           </select>
         </label>
       </div>
-      <p class="muted">Совет: мест в бункере делай меньше, чем игроков. Тогда появится смысл спорить, голосовать и выгонять.</p>
+      <div class="panel settings-extra-panel">
+        <h4>Дополнительные карты</h4>
+        <label class="checkline">
+          <input id="addPositiveCardsInput" type="checkbox" />
+          Добавить всем карту “Положительный пункт”
+        </label>
+        <label class="checkline">
+          <input id="addNegativeCardsInput" type="checkbox" checked />
+          Добавить всем обязательный негативный пункт
+        </label>
+        <label class="checkline">
+          <input id="addInactiveCardsInput" type="checkbox" />
+          Добавить всем “Неактивную функцию” — полезно, но с условием
+        </label>
+      </div>
+      <p class="muted">Совет: стандартно голосование открывается с 3-го круга раскрытия. До этого игроки могут сами собрать 70% голосов за досрочный совет. События первые 3 круга выключены, дальше работают по твоим процентам. Если веса редкостей не дают 100%, игра сама нормально пересчитает шанс между ними.</p>
       <button id="confirmCreateRoomBtn" class="primary">Создать лобби с этими настройками</button>
+    </div>
+  </div>
+
+
+  <div id="ageGateModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card panel age-gate-card">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">18+ вход</p>
+          <h3>Подтверждение взрослого режима</h3>
+        </div>
+        <button id="ageGateCancelBtn" class="danger-light">Назад</button>
+      </div>
+      <p class="muted">Это лобби включает 18+ мемы, неловкие взрослые карточки и взрослые шутки. Чтобы войти, подтверди возраст и реши сверхсложную проверку, где ответ всегда 5.</p>
+      <div class="form-grid settings-grid">
+        <label>
+          Сколько тебе лет?
+          <input id="ageGateAgeInput" type="number" min="1" max="120" placeholder="Например: 18" />
+        </label>
+        <label>
+          Мини-задачка: <span id="ageGateQuestion">2 + 3</span> = ?
+          <input id="ageGateAnswerInput" type="number" placeholder="Ответ" />
+        </label>
+      </div>
+      <p class="muted">Если ответ не 5, Ван Зошит делает вид, что ты слишком молод для этого хаоса.</p>
+      <button id="ageGateConfirmBtn" class="primary">Подтвердить и продолжить</button>
     </div>
   </div>
 

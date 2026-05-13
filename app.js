@@ -35,7 +35,17 @@ const settingsModal = $("#settingsModal");
 const maxPlayersInput = $("#maxPlayersInput");
 const bunkerSeatsInput = $("#bunkerSeatsInput");
 const revealLimitInput = $("#revealLimitInput");
+const votingStartsAfterInput = $("#votingStartsAfterInput");
+const earlyVotePercentInput = $("#earlyVotePercentInput");
+const eventChanceInput = $("#eventChanceInput");
+const eventCommonInput = $("#eventCommonInput");
+const eventRareInput = $("#eventRareInput");
+const eventSuperInput = $("#eventSuperInput");
+const eventLegendaryInput = $("#eventLegendaryInput");
 const memeModeSelect = $("#memeModeSelect");
+const addPositiveCardsInput = $("#addPositiveCardsInput");
+const addNegativeCardsInput = $("#addNegativeCardsInput");
+const addInactiveCardsInput = $("#addInactiveCardsInput");
 const joinRoomBtn = $("#joinRoomBtn");
 const copyRoomBtn = $("#copyRoomBtn");
 const leaveRoomBtn = $("#leaveRoomBtn");
@@ -47,8 +57,28 @@ const generateBunkerBtn = $("#generateBunkerBtn");
 const generateEventBtn = $("#generateEventBtn");
 const resetVotesBtn = $("#resetVotesBtn");
 const eliminateTopBtn = $("#eliminateTopBtn");
+const requestStartVoteBtn = $("#requestStartVoteBtn");
+const forceStartVoteBtn = $("#forceStartVoteBtn");
+const closeVotingBtn = $("#closeVotingBtn");
 const copyStoryBtn = $("#copyStoryBtn");
 const copyBunkerBtn = $("#copyBunkerBtn");
+const ageGateModal = $("#ageGateModal");
+const ageGateAgeInput = $("#ageGateAgeInput");
+const ageGateQuestion = $("#ageGateQuestion");
+const ageGateAnswerInput = $("#ageGateAnswerInput");
+const ageGateConfirmBtn = $("#ageGateConfirmBtn");
+const ageGateCancelBtn = $("#ageGateCancelBtn");
+const personalizationBtn = $("#personalizationBtn");
+const profileModal = $("#profileModal");
+const closeProfileBtn = $("#closeProfileBtn");
+const saveProfileBtn = $("#saveProfileBtn");
+const avatarGrid = $("#avatarGrid");
+const themeSelect = $("#themeSelect");
+const accentSelect = $("#accentSelect");
+const sfxToggleInput = $("#sfxToggleInput");
+const musicToggleInput = $("#musicToggleInput");
+const musicToggleBtn = $("#musicToggleBtn");
+const profilePreview = $("#profilePreview");
 
 const roomCodeTitle = $("#roomCodeTitle");
 const roomStatus = $("#roomStatus");
@@ -56,12 +86,14 @@ const revealRoundText = $("#revealRoundText");
 const myRevealState = $("#myRevealState");
 const aliveCountText = $("#aliveCountText");
 const cardsStateText = $("#cardsStateText");
+const votePhaseText = $("#votePhaseText");
 const oneRevealHint = $("#oneRevealHint");
 
 const myCards = $("#myCards");
 const playersList = $("#playersList");
 const statsTableHead = $("#statsTableHead");
 const statsTableBody = $("#statsTableBody");
+const voteControlBox = $("#voteControlBox");
 const voteTargets = $("#voteTargets");
 const voteResults = $("#voteResults");
 const voteDetails = $("#voteDetails");
@@ -70,6 +102,8 @@ const storyBox = $("#storyBox");
 const eventBox = $("#eventBox");
 const bunkerBox = $("#bunkerBox");
 const activeEffectsBox = $("#activeEffectsBox");
+const survivalBox = $("#survivalBox");
+const analyzeSurvivalBtn = $("#analyzeSurvivalBtn");
 const noticeToast = $("#noticeToast");
 const cardTemplate = $("#cardTemplate");
 
@@ -79,6 +113,12 @@ let roomCode = null;
 let unsubscribeRoom = null;
 let roomState = null;
 let lastNoticeToken = null;
+let pendingAdultGateResolve = null;
+let currentAgeGateAnswer = 5;
+let userProfile = loadProfile();
+let audioCtx = null;
+let musicTimer = null;
+let musicStep = 0;
 
 const playerId = getOrCreatePlayerId();
 let playerName = localStorage.getItem("vz_player_name") || "";
@@ -157,7 +197,34 @@ function readSettings() {
   const maxPlayers = clamp(Number(maxPlayersInput.value) || 8, 2, 30);
   const bunkerSeats = clamp(Number(bunkerSeatsInput.value) || Math.max(2, Math.floor(maxPlayers / 2)), 1, maxPlayers);
   const revealLimit = clamp(Number(revealLimitInput.value) || 1, 1, 3);
-  return { maxPlayers, bunkerSeats, revealLimit, memeMode: memeModeSelect.value || "meme" };
+  const votingStartsAfter = clamp(Number(votingStartsAfterInput.value) || 3, 1, 10);
+  const earlyVotePercent = clamp(Number(earlyVotePercentInput.value) || 70, 50, 100);
+  const eventChanceValue = eventChanceInput?.value === "" || eventChanceInput?.value == null ? 30 : Number(eventChanceInput.value);
+  const eventChance = clamp(Number.isFinite(eventChanceValue) ? eventChanceValue : 30, 0, 100);
+  const eventWeights = {
+    common: clamp(Number(eventCommonInput?.value) || 0, 0, 100),
+    rare: clamp(Number(eventRareInput?.value) || 0, 0, 100),
+    super_rare: clamp(Number(eventSuperInput?.value) || 0, 0, 100),
+    legendary: clamp(Number(eventLegendaryInput?.value) || 0, 0, 100)
+  };
+  return {
+    maxPlayers,
+    bunkerSeats,
+    revealLimit,
+    votingStartsAfter,
+    earlyVotePercent,
+    eventChance,
+    eventWeights,
+    memeMode: memeModeSelect.value || "meme",
+    addPositiveCards: !!addPositiveCardsInput?.checked,
+    addNegativeCards: !!addNegativeCardsInput?.checked,
+    addInactiveCards: !!addInactiveCardsInput?.checked
+  };
+}
+
+function currentPhases() {
+  const settings = roomState?.settings || readSettings();
+  return phases.filter((phase) => !phase.optional || settings?.[phase.setting]);
 }
 
 function clamp(value, min, max) {
@@ -166,6 +233,294 @@ function clamp(value, min, max) {
 
 function currentMemeMode() {
   return roomState?.settings?.memeMode || memeModeSelect?.value || "meme";
+}
+
+const AVATAR_PRESETS = [
+  { id: "stream-eyes", src: "./assets/avatars/stream-eyes.webp", title: "Персонаж стрима с глазами", desc: "смотрит так, будто уже видел твои карты" },
+  { id: "braid-viking", src: "./assets/avatars/braid-viking.webp", title: "Мужик-викинг", desc: "строгий взгляд, мощная борода и ноль компромиссов" },
+  { id: "hooded-cleric", src: "./assets/avatars/hooded-cleric.webp", title: "Культист в капюшоне", desc: "всегда знает лишний ритуал и план Б" },
+  { id: "medic-boy", src: "./assets/avatars/medic-boy.webp", title: "Парень-медик", desc: "выглядит серьёзно и будто реально может перевязать" },
+  { id: "funny-woman", src: "./assets/avatars/funny-woman.webp", title: "Женщина с мемным взглядом", desc: "смотрит так, будто ты уже проиграл спор" },
+  { id: "horned-demoness", src: "./assets/avatars/horned-demoness.webp", title: "Рогатая демонесса", desc: "харизма высокая, доверие — по ситуации" },
+  { id: "cowboy-mem", src: "./assets/avatars/cowboy-mem.webp", title: "Ковбой с рп бутылкой", desc: "выглядит так, будто видел слишком много" },
+  { id: "mustache-mask", src: "./assets/avatars/mustache-mask.webp", title: "Усатый кошмар", desc: "лицо, которое не хочется встретить ночью" },
+  { id: "boy-shirt", src: "./assets/avatars/boy-shirt.webp", title: "Парень в вышиванке", desc: "обычный добрый вид, но это ещё ничего не значит" },
+  { id: "plague-claw", src: "./assets/avatars/plague-claw.webp", title: "Чумной коготь", desc: "птицемаска, красные глаза и очень плохая аура" },
+  { id: "iluhandro", src: "./assets/avatars/iluhandro.webp", title: "ILUHANDRO", desc: "качок с самоуверенной рожей и готовым кулаком" },
+  { id: "weird-face", src: "./assets/avatars/weird-face.webp", title: "Странная рожа", desc: "абсолютно мемный взгляд вне контекста" },
+  { id: "old-bw", src: "./assets/avatars/old-bw.webp", title: "Старик в чёрно-белом", desc: "будто знает все спойлеры этой партии" },
+  { id: "alvin", src: "./assets/avatars/alvin.webp", title: "Элвин в худи", desc: "мультяшный умник, который уже что-то вычислил" },
+  { id: "thinking-guy", src: "./assets/avatars/thinking-guy.webp", title: "Задумчивый мужик", desc: "сидит так, будто оценил все твои шансы" },
+  { id: "smile-suit", src: "./assets/avatars/smile-suit.webp", title: "Улыбающийся тип в костюме", desc: "слишком довольный, чтобы ему верить" },
+  { id: "v1-robot", src: "./assets/avatars/v1-robot.webp", title: "V1", desc: "машина с ультранасилием и банкой в руке" },
+  { id: "pink-girl", src: "./assets/avatars/pink-girl.webp", title: "Розовая магическая девочка", desc: "выглядит мило, но явно пережила слишком многое" },
+  { id: "white-beard", src: "./assets/avatars/white-beard.webp", title: "Белобородый аниме-старик", desc: "лицо человека, который смеётся над хаосом" },
+  { id: "laughing-guy", src: "./assets/avatars/laughing-guy.webp", title: "Смеющийся чел", desc: "веселье настолько сильное, что пугает" }
+];
+
+function defaultProfile() {
+  return {
+    avatarId: "stream-eyes",
+    theme: "dark",
+    accent: "pink",
+    music: false,
+    sfx: true
+  };
+}
+
+function loadProfile() {
+  try {
+    return { ...defaultProfile(), ...(JSON.parse(localStorage.getItem("vz_profile") || "{}")) };
+  } catch {
+    return defaultProfile();
+  }
+}
+
+function saveProfileLocal() {
+  localStorage.setItem("vz_profile", JSON.stringify(userProfile));
+}
+
+function getAvatar(id = userProfile.avatarId) {
+  return AVATAR_PRESETS.find((item) => item.id === id) || AVATAR_PRESETS[0];
+}
+
+function avatarVisualHtml(avatar, extraClass = "") {
+  if (!avatar) return `<span class="avatar-fallback ${extraClass}">👤</span>`;
+  if (avatar.src) return `<img class="avatar-img ${extraClass}" src="${avatar.src}" alt="${escapeHtml(avatar.title || "Аватар")}" loading="lazy" />`;
+  return `<span class="avatar-fallback ${extraClass}">${escapeHtml(avatar.icon || "👤")}</span>`;
+}
+
+function getPublicProfile() {
+  const avatar = getAvatar(userProfile.avatarId);
+  return {
+    avatarId: avatar.id,
+    avatarTitle: avatar.title,
+    theme: userProfile.theme,
+    accent: userProfile.accent
+  };
+}
+
+function applyProfile() {
+  document.body.classList.toggle("theme-light", userProfile.theme === "light");
+  document.body.dataset.accent = userProfile.accent || "pink";
+  if (themeSelect) themeSelect.value = userProfile.theme || "dark";
+  if (accentSelect) accentSelect.value = userProfile.accent || "pink";
+  if (sfxToggleInput) sfxToggleInput.checked = userProfile.sfx !== false;
+  if (musicToggleInput) musicToggleInput.checked = !!userProfile.music;
+  if (musicToggleBtn) musicToggleBtn.textContent = `♫ Музыка: ${userProfile.music ? "вкл" : "выкл"}`;
+  renderProfilePreview();
+  if (userProfile.music) startMenuMusic();
+  else stopMenuMusic();
+}
+
+function renderProfilePreview() {
+  if (!profilePreview) return;
+  const avatar = getAvatar();
+  profilePreview.innerHTML = `
+    <div class="profile-preview-avatar">${avatarVisualHtml(avatar)}</div>
+    <div>
+      <strong>${escapeHtml(avatar.title)}</strong>
+      <span>${escapeHtml(avatar.desc)}</span>
+    </div>
+  `;
+}
+
+function renderAvatarPicker() {
+  if (!avatarGrid) return;
+  avatarGrid.innerHTML = "";
+  AVATAR_PRESETS.forEach((avatar) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `avatar-option ${userProfile.avatarId === avatar.id ? "selected" : ""}`;
+    btn.dataset.avatarId = avatar.id;
+    btn.innerHTML = `
+      <span class="avatar-icon avatar-thumb">${avatarVisualHtml(avatar)}</span>
+      <strong>${escapeHtml(avatar.title)}</strong>
+      <small>${escapeHtml(avatar.desc)}</small>
+    `;
+    btn.addEventListener("click", () => {
+      userProfile.avatarId = avatar.id;
+      renderAvatarPicker();
+      playUiSound("select");
+    });
+    avatarGrid.appendChild(btn);
+  });
+}
+
+function openProfileModal() {
+  renderAvatarPicker();
+  applyProfile();
+  profileModal?.classList.remove("hidden");
+}
+
+function closeProfileModal() {
+  profileModal?.classList.add("hidden");
+}
+
+async function saveProfile() {
+  userProfile.theme = themeSelect?.value || "dark";
+  userProfile.accent = accentSelect?.value || "pink";
+  userProfile.sfx = !!sfxToggleInput?.checked;
+  userProfile.music = !!musicToggleInput?.checked;
+  saveProfileLocal();
+  applyProfile();
+  playUiSound("save");
+  if (roomCode && roomState?.players?.[playerId]) {
+    await update(roomRef(`players/${playerId}/profile`), getPublicProfile());
+    await pushLog(`${playerName || "Игрок"} обновил персонализацию.`);
+  }
+  closeProfileModal();
+}
+
+function playerAvatarHtml(player, size = "normal") {
+  const profile = player?.profile || {};
+  const avatar = getAvatar(profile.avatarId);
+  const title = profile.avatarTitle || avatar.title || "Игрок";
+  const visual = avatarVisualHtml(avatar, size === "small" ? "small" : "");
+  return `<span class="player-avatar ${size}" title="${escapeHtml(title)}">${visual}</span>`;
+}
+
+function getAudioContext() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === "suspended") audioCtx.resume();
+  return audioCtx;
+}
+
+function playTone(freq, duration = 0.08, type = "sine", volume = 0.035) {
+  if (!userProfile.sfx && type !== "triangle") return;
+  try {
+    const ctx = getAudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(volume, ctx.currentTime + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + duration);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + duration + 0.02);
+  } catch {}
+}
+
+function playUiSound(kind = "click") {
+  if (userProfile.sfx === false) return;
+  const map = {
+    click: 420,
+    select: 560,
+    save: 660,
+    danger: 180
+  };
+  playTone(map[kind] || 420, 0.07, "square", 0.025);
+}
+
+function playMusicNote(freq, duration = 0.3, type = "triangle", volume = 0.04) {
+  try {
+    const ctx = getAudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(volume, ctx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + duration);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + duration + 0.04);
+  } catch {}
+}
+
+function unlockAudio() {
+  try {
+    const ctx = getAudioContext();
+    if (ctx.state === "suspended") ctx.resume();
+  } catch {}
+}
+
+function startMenuMusic() {
+  unlockAudio();
+  if (musicTimer) return;
+  const melody = [
+    { note: 261.63, length: 0.34 },
+    { note: 329.63, length: 0.34 },
+    { note: 392.0, length: 0.34 },
+    { note: 523.25, length: 0.56 },
+    { note: 392.0, length: 0.34 },
+    { note: 349.23, length: 0.34 },
+    { note: 293.66, length: 0.34 },
+    { note: 329.63, length: 0.56 }
+  ];
+  musicStep = 0;
+  const tick = () => {
+    if (!userProfile.music || !setupView || setupView.classList.contains("hidden")) {
+      musicTimer = setTimeout(tick, 900);
+      return;
+    }
+    const part = melody[musicStep % melody.length];
+    playMusicNote(part.note, part.length, "triangle", 0.045);
+    if (musicStep % 2 === 0) playMusicNote(part.note / 2, Math.max(0.24, part.length - 0.05), "sine", 0.018);
+    musicStep += 1;
+    musicTimer = setTimeout(tick, part.length * 1000 + 200);
+  };
+  tick();
+}
+
+function stopMenuMusic() {
+  if (musicTimer) clearTimeout(musicTimer);
+  musicTimer = null;
+}
+
+function toggleMenuMusic() {
+  unlockAudio();
+  userProfile.music = !userProfile.music;
+  if (musicToggleInput) musicToggleInput.checked = userProfile.music;
+  saveProfileLocal();
+  applyProfile();
+  if (userProfile.music) playMusicNote(392.0, 0.22, "triangle", 0.055);
+  playUiSound(userProfile.music ? "save" : "click");
+}
+
+
+function adultGateIsConfirmed() {
+  return sessionStorage.getItem("vz_adult_confirmed") === "yes";
+}
+
+function makeAdultGateQuestion() {
+  const tasks = [
+    ["55 - 50", 5],
+    ["2 + 3", 5],
+    ["7 - 2", 5],
+    ["10 / 2", 5],
+    ["1 + 1 + 3", 5],
+    ["25 - 20", 5],
+    ["100 - 95", 5]
+  ];
+  const [question, answer] = tasks[Math.floor(Math.random() * tasks.length)];
+  currentAgeGateAnswer = answer;
+  if (ageGateQuestion) ageGateQuestion.textContent = question;
+  if (ageGateAnswerInput) ageGateAnswerInput.value = "";
+}
+
+function askAdultGate() {
+  if (adultGateIsConfirmed()) return Promise.resolve(true);
+  makeAdultGateQuestion();
+  if (ageGateAgeInput) ageGateAgeInput.value = "";
+  ageGateModal?.classList.remove("hidden");
+  return new Promise((resolve) => {
+    pendingAdultGateResolve = resolve;
+  });
+}
+
+async function ensureAdultGateForMode(mode) {
+  if (mode !== "adult") return true;
+  return await askAdultGate();
+}
+
+function resolveAdultGate(value) {
+  ageGateModal?.classList.add("hidden");
+  const resolve = pendingAdultGateResolve;
+  pendingAdultGateResolve = null;
+  if (resolve) resolve(value);
 }
 
 function showSettingsModal() {
@@ -202,12 +557,13 @@ function emptyEffects(round = 1, keep = {}) {
 }
 
 async function createRoom() {
-  hideSettingsModal();
   playerName = cleanName(playerNameInput.value);
   localStorage.setItem("vz_player_name", playerName);
-  roomCode = makeRoomCode();
   const settings = readSettings();
-  const initialStory = generateStory();
+  if (!(await ensureAdultGateForMode(settings.memeMode))) return;
+  hideSettingsModal();
+  roomCode = makeRoomCode();
+  const initialStory = generateStory(settings.memeMode);
   const initialBunker = generateBunker(settings);
 
   const room = {
@@ -221,11 +577,14 @@ async function createRoom() {
     bunker: initialBunker,
     currentEvent: null,
     nextEventPreview: null,
+    votePhase: "closed",
+    voteStartVotes: {},
     effects: emptyEffects(1),
     players: {
       [playerId]: {
         id: playerId,
         name: playerName,
+        profile: getPublicProfile(),
         alive: true,
         joinedAt: Date.now(),
         cards: null,
@@ -237,7 +596,7 @@ async function createRoom() {
     votes: {},
     log: [
       `[${nowTime()}] ${playerName} создал комнату.`,
-      `[${nowTime()}] Настройки: максимум игроков ${settings.maxPlayers}, мест в бункере ${settings.bunkerSeats}, раскрытий за круг ${settings.revealLimit}.`,
+      `[${nowTime()}] Настройки: максимум игроков ${settings.maxPlayers}, мест в бункере ${settings.bunkerSeats}, раскрытий за круг ${settings.revealLimit}. Доп. карты: ${[settings.addPositiveCards ? "плюс" : "", settings.addNegativeCards ? "минус" : "", settings.addInactiveCards ? "неактив" : ""].filter(Boolean).join(", ") || "нет"}.`,
       `[${nowTime()}] Катастрофа: ${initialStory.title}.`,
       `[${nowTime()}] Бункер создан: ${initialBunker.title}.`
     ]
@@ -261,6 +620,10 @@ async function joinRoom() {
   }
 
   const room = snapshot.val();
+  if (room.settings?.memeMode === "adult" && !(await ensureAdultGateForMode("adult"))) {
+    roomCode = null;
+    return;
+  }
   const players = room.players || {};
   const existingPlayer = players[playerId];
   const playerCount = Object.keys(players).length;
@@ -273,6 +636,7 @@ async function joinRoom() {
   await update(roomRef(`players/${playerId}`), {
     id: playerId,
     name: playerName,
+    profile: getPublicProfile(),
     alive: existingPlayer?.alive ?? true,
     joinedAt: existingPlayer?.joinedAt || Date.now(),
     cards: existingPlayer?.cards || null,
@@ -289,6 +653,7 @@ function enterRoom(code) {
   roomCode = code;
   roomCodeInput.value = code;
   setupView.classList.add("hidden");
+  stopMenuMusic();
   gameView.classList.remove("hidden");
   roomCodeTitle.textContent = code;
 
@@ -313,6 +678,7 @@ function leaveRoomLocal() {
   roomState = null;
   gameView.classList.add("hidden");
   setupView.classList.remove("hidden");
+  if (userProfile.music) startMenuMusic();
 }
 
 async function leaveRoom() {
@@ -331,11 +697,13 @@ async function generateCardsForAll() {
   if (!isHost()) return;
   const players = roomState.players || {};
   const mode = currentMemeMode();
-  const event = generateRoundEvent(1, mode);
+  const event = generateRoundEvent(1, mode, roomState?.settings || readSettings());
   const updates = {
     cardsGenerated: true,
     revealRound: 1,
+    votePhase: "closed",
     votes: {},
+    voteStartVotes: {},
     effects: emptyEffects(1),
     currentEvent: event,
     nextEventPreview: null,
@@ -343,7 +711,7 @@ async function generateCardsForAll() {
   };
 
   Object.keys(players).forEach((id) => {
-    updates[`players/${id}/cards`] = generateCharacterCards(mode);
+    updates[`players/${id}/cards`] = generateCharacterCards(mode, roomState?.settings || readSettings());
     updates[`players/${id}/alive`] = true;
     updates[`players/${id}/lastRevealRound`] = 0;
     updates[`players/${id}/revealCountThisRound`] = 0;
@@ -358,33 +726,37 @@ async function generateCardsForAll() {
 async function startNextRevealRound() {
   if (!isHost()) return;
   const next = (roomState.revealRound || 1) + 1;
-  const event = roomState.nextEventPreview || generateRoundEvent(next, currentMemeMode());
+  const event = roomState.nextEventPreview || generateRoundEvent(next, currentMemeMode(), roomState?.settings || readSettings());
   const keep = {
     charm: roomState.effects?.charm || {},
     antiTheft: roomState.effects?.antiTheft || {},
     doubleEliminateNext: roomState.effects?.doubleEliminateNext || false,
     lastPomidor: roomState.effects?.lastPomidor || null
   };
+  const autoOpenVoting = next >= votingStartsAfter();
   const updates = {
     revealRound: next,
     currentEvent: event,
     nextEventPreview: null,
     votes: {},
+    voteStartVotes: {},
+    votePhase: autoOpenVoting ? "open" : "closed",
     effects: emptyEffects(next, keep),
-    lastNotice: makeNotice(`Новый круг ${next}. Событие обновлено: ${event.title}`)
+    lastNotice: makeNotice(autoOpenVoting ? `Новый круг ${next}. Голосование открыто. Событие: ${event.title}` : `Новый круг ${next}. Событие обновлено: ${event.title}`)
   };
   getPlayers().forEach((p) => {
     updates[`players/${p.id}/revealCountThisRound`] = 0;
   });
   const eventLogs = applyRoundEvent(event, updates, next);
   await update(roomRef(), updates);
-  await pushLog(`Начался круг раскрытия ${next}. Событие: ${event.title}. Голоса и эффекты раунда сброшены.`);
+  await pushLog(`Начался круг раскрытия ${next}. Событие: ${event.title}. Голоса и эффекты раунда сброшены.${autoOpenVoting ? " Голосование открыто автоматически." : ""}`);
+  if (autoOpenVoting) await pushLog(`Система голосования: с ${votingStartsAfter()} круга совет бункера открыт. Теперь можно голосовать за вылет.`);
   for (const line of eventLogs) await pushLog(line);
 }
 
 async function generateNewStory() {
   if (!isHost()) return;
-  const story = generateStory();
+  const story = generateStory(currentMemeMode());
   await update(roomRef(), { story });
   await pushLog(`Ведущий сгенерировал новую катастрофу: ${story.title}.`);
 }
@@ -399,7 +771,7 @@ async function generateNewBunker() {
 async function generateNewEvent() {
   if (!isHost()) return;
   const round = roomState.revealRound || 1;
-  const event = generateRoundEvent(round, currentMemeMode());
+  const event = generateRoundEvent(round, currentMemeMode(), roomState?.settings || readSettings());
   const updates = {
     currentEvent: event,
     lastNotice: makeNotice(`Событие обновлено: ${event.title}`)
@@ -456,7 +828,87 @@ function nameOf(id) {
   return roomState?.players?.[id]?.name || "Игрок";
 }
 
+function votingStartsAfter() {
+  return Number(roomState?.settings?.votingStartsAfter || 3);
+}
+
+function earlyVotePercent() {
+  return Number(roomState?.settings?.earlyVotePercent || 70);
+}
+
+function isVotingOpen() {
+  return roomState?.votePhase === "open";
+}
+
+function alivePlayersList() {
+  return getPlayers().filter((p) => p.alive);
+}
+
+function voteStartYesIds() {
+  const alive = new Set(alivePlayersList().map((p) => p.id));
+  return Object.keys(roomState?.voteStartVotes || {}).filter((id) => alive.has(id) && roomState.voteStartVotes[id]);
+}
+
+function requiredStartVotes() {
+  const aliveCount = Math.max(1, alivePlayersList().length);
+  return Math.ceil(aliveCount * earlyVotePercent() / 100);
+}
+
+async function requestStartVoting() {
+  const me = getMe();
+  if (!roomState?.cardsGenerated) return alert("Сначала нужно сгенерировать карты.");
+  if (!me?.alive) return alert("Выгнанный игрок не может запускать совет.");
+  if (isVotingOpen()) return alert("Голосование уже открыто.");
+
+  const yesIds = new Set(voteStartYesIds());
+  yesIds.add(playerId);
+  const needed = requiredStartVotes();
+  const aliveCount = alivePlayersList().length;
+  const updates = {
+    [`voteStartVotes/${playerId}`]: true,
+    lastNotice: makeNotice(`${playerName} хочет начать голосование сейчас (${yesIds.size}/${needed})`)
+  };
+
+  if (yesIds.size >= needed) {
+    updates.votePhase = "open";
+    updates.votes = {};
+    updates.voteStartVotes = {};
+    updates.lastNotice = makeNotice(`Порог ${earlyVotePercent()}% достигнут. Голосование открыто!`);
+  }
+
+  await update(roomRef(), updates);
+  if (yesIds.size >= needed) {
+    await pushLog(`Досрочное голосование открыто: ${yesIds.size}/${aliveCount} игроков за, нужно было ${needed} (${earlyVotePercent()}%).`);
+  } else {
+    await pushLog(`${playerName} предложил начать голосование сейчас: ${yesIds.size}/${needed} голосов за запуск.`);
+  }
+}
+
+async function hostOpenVoting() {
+  if (!isHost()) return;
+  if (!roomState?.cardsGenerated) return alert("Сначала нужно сгенерировать карты.");
+  await update(roomRef(), {
+    votePhase: "open",
+    voteStartVotes: {},
+    votes: {},
+    lastNotice: makeNotice("Ведущий открыл голосование")
+  });
+  await pushLog("Ведущий принудительно открыл голосование за вылет.");
+}
+
+async function hostCloseVoting() {
+  if (!isHost()) return;
+  await update(roomRef(), {
+    votePhase: "closed",
+    voteStartVotes: {},
+    votes: {},
+    lastNotice: makeNotice("Голосование закрыто")
+  });
+  await pushLog("Ведущий закрыл голосование и сбросил голоса.");
+}
+
 async function voteFor(targetId) {
+  if (!isVotingOpen()) return alert("Голосование сейчас закрыто. Оно откроется автоматически после нужного круга или если 70% игроков попросят начать раньше.");
   const me = roomState?.players?.[playerId];
   if (!me?.alive) return alert("Выгнанный игрок не голосует.");
   if (isFrozen(playerId)) return alert("Ты заморожен и не можешь голосовать.");
@@ -505,6 +957,7 @@ function getVoteCounts() {
 
 async function eliminateTop() {
   if (!isHost()) return;
+  if (!isVotingOpen()) return alert("Голосование закрыто. Сначала открой голосование.");
   const counts = getVoteCounts();
   const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
   if (!sorted.length) return alert("Пока нет голосов.");
@@ -539,7 +992,7 @@ async function eliminateTop() {
     return;
   }
 
-  const updates = { votes: {} };
+  const updates = { votes: {}, votePhase: "closed", voteStartVotes: {}, lastNotice: makeNotice("Голосование завершено") };
   const eliminated = [];
   const needTwo = !!roomState.effects?.doubleEliminateNext;
   for (const [id] of sorted) {
@@ -552,7 +1005,7 @@ async function eliminateTop() {
   updates["effects/doubleEliminateNext"] = false;
   if (!eliminated.length) return alert("Все лидеры защищены. Нужен переголос.");
   await update(roomRef(), updates);
-  await pushLog(`${eliminated.join(" и ")} выгнан${eliminated.length > 1 ? "ы" : ""} из бункера голосованием (${count} голос. у лидера).`);
+  await pushLog(`${eliminated.join(" и ")} выгнан${eliminated.length > 1 ? "ы" : ""} из бункера голосованием (${count} голос. у лидера). Голосование закрыто до следующего круга или досрочного запуска.`);
 }
 
 function pomidorCard() {
@@ -700,7 +1153,7 @@ async function usePomidor(targetId = null) {
     case "chess": {
       if (roomState.effects?.antiTheft?.[actualTarget]) return alert("У цели защита от обмена карт.");
       const target = roomState.players?.[actualTarget];
-      const swapKey = phases.map((p) => p.key).find((key) => !["identity", "pomidor"].includes(key) && me.cards?.[key]?.revealed && target?.cards?.[key]?.revealed);
+      const swapKey = currentPhases().map((p) => p.key).find((key) => !["identity", "pomidor"].includes(key) && me.cards?.[key]?.revealed && target?.cards?.[key]?.revealed);
       if (!swapKey) return alert("Нет одинаковой публично раскрытой карты для рокировки. Нужно, чтобы у обоих была открыта одна категория, кроме расы и Помидора.");
       const myCard = me.cards[swapKey];
       const targetCard = target.cards[swapKey];
@@ -736,14 +1189,14 @@ async function usePomidor(targetId = null) {
       logText += ` ${nameOf(actualTarget)} больше не может голосовать против ${playerName}.`;
       break;
     case "shabalduy": {
-      const identity = generateCharacterCards(currentMemeMode()).identity;
+      const identity = generateCharacterCards(currentMemeMode(), roomState?.settings || {}).identity;
       identity.revealed = me.cards.identity?.revealed || false;
       Object.assign(updates, cardPatch(`players/${playerId}/cards/identity`, identity));
       logText += ` Раса ${playerName} переписана: ${identity.title}.`;
       break;
     }
     case "navigator": {
-      const future = generateRoundEvent((roomState.revealRound || 1) + 1, currentMemeMode());
+      const future = generateRoundEvent((roomState.revealRound || 1) + 1, currentMemeMode(), roomState?.settings || readSettings());
       updates[`players/${playerId}/privatePreview`] = future;
       updates.nextEventPreview = future;
       logText += " Он увидел событие следующего раунда. Ведущий может использовать это как будущий ивент.";
@@ -819,7 +1272,7 @@ function randomFrom(list) {
 
 function randomNormalCardKey(player) {
   const blocked = new Set(["identity", "pomidor"]);
-  const keys = phases.map((p) => p.key).filter((key) => !blocked.has(key) && player?.cards?.[key]);
+  const keys = currentPhases().map((p) => p.key).filter((key) => !blocked.has(key) && player?.cards?.[key]);
   return keys.length ? randomFrom(keys) : null;
 }
 
@@ -831,6 +1284,9 @@ function applyRoundEvent(event, updates, round) {
   const patchCard = (id, key, card) => Object.assign(updates, cardPatch(`players/${id}/cards/${key}`, card));
 
   switch (event.effectType) {
+    case "none": {
+      break;
+    }
     case "force_random_reveal": {
       const candidates = alive.map((p) => ({ p, keys: phases.map((phase) => phase.key).filter((key) => p.cards?.[key] && !p.cards[key].revealed) })).filter((item) => item.keys.length);
       if (!candidates.length) break;
@@ -906,7 +1362,7 @@ function applyRoundEvent(event, updates, round) {
     case "random_mutation": {
       if (!alive.length) break;
       const p = randomFrom(alive);
-      const identity = generateCharacterCards(mode).identity;
+      const identity = generateCharacterCards(mode, roomState?.settings || readSettings()).identity;
       identity.revealed = p.cards.identity?.revealed || false;
       patchCard(p.id, "identity", identity);
       logs.push(`Эффект события: раса игрока ${p.name} переписана на “${identity.title}”.`);
@@ -915,7 +1371,7 @@ function applyRoundEvent(event, updates, round) {
     case "mass_mutation": {
       const targets = [...alive].sort(() => Math.random() - 0.5).slice(0, Math.min(2, alive.length));
       targets.forEach((p) => {
-        const identity = generateCharacterCards(mode).identity;
+        const identity = generateCharacterCards(mode, roomState?.settings || readSettings()).identity;
         identity.revealed = p.cards.identity?.revealed || false;
         patchCard(p.id, "identity", identity);
       });
@@ -955,10 +1411,10 @@ function applyRoundEvent(event, updates, round) {
       break;
     }
     case "chaos_swap_all": {
-      const keys = ["body", "character", "profession", "health", "skill", "phobia", "baggage", "artifact", "faction"];
+      const keys = currentPhases().map((p) => p.key).filter((k) => !["identity", "pomidor"].includes(k));
       alive.forEach((p) => {
         const key = randomFrom(keys.filter((k) => p.cards?.[k]));
-        const newCards = generateCharacterCards(mode);
+        const newCards = generateCharacterCards(mode, roomState?.settings || readSettings());
         const card = newCards[key];
         card.revealed = p.cards[key]?.revealed || false;
         patchCard(p.id, key, card);
@@ -981,6 +1437,92 @@ function applyRoundEvent(event, updates, round) {
       const additions = [randomBaggageCard(mode).title, randomBaggageCard(mode).title, randomBaggageCard(mode).title];
       updates["bunker/items"] = [...new Set(oldItems.concat(additions))];
       logs.push(`Эффект события: склад добавил предметы: ${additions.join(", ")}.`);
+      break;
+    }
+    case "family_reveal": {
+      const candidates = alive.filter((p) => p.cards?.sexFamily && !p.cards.sexFamily.revealed);
+      if (!candidates.length) break;
+      const p = randomFrom(candidates);
+      updates[`players/${p.id}/cards/sexFamily/revealed`] = true;
+      logs.push(`Эффект события: карта пола и потомства игрока ${p.name} раскрыта публично.`);
+      break;
+    }
+    case "profession_reveal_all": {
+      alive.forEach((p) => { if (p.cards?.profession) updates[`players/${p.id}/cards/profession/revealed`] = true; });
+      logs.push("Эффект события: профессии всех живых игроков раскрыты публично.");
+      break;
+    }
+    case "phobia_reveal_all": {
+      alive.forEach((p) => { if (p.cards?.phobia) updates[`players/${p.id}/cards/phobia/revealed`] = true; });
+      logs.push("Эффект события: фобии всех живых игроков раскрыты публично.");
+      break;
+    }
+    case "global_bad_health": {
+      alive.forEach((p) => {
+        const old = p.cards.health;
+        const health = { ...old, title: `Критическое ухудшение: ${old.title}`, description: `${old.description} Медицинский обвал добавил тяжёлый минус: слабость, риск заражения и потребность в ресурсах.` };
+        patchCard(p.id, "health", health);
+      });
+      logs.push("Эффект события: здоровье всех живых игроков критически ухудшено.");
+      break;
+    }
+    case "freeze_sick": {
+      const candidates = alive.filter((p) => /гни|инфек|плес|лихорад|темпера|паразит|печать/i.test(`${p.cards?.health?.title} ${p.cards?.health?.description}`));
+      const p = randomFrom(candidates.length ? candidates : alive);
+      updates[`effects/frozen/${p.id}`] = round;
+      logs.push(`Эффект события: ${p.name} отправлен в карантин и заморожен до конца раунда.`);
+      break;
+    }
+    case "phobia_reveal_one": {
+      const candidates = alive.filter((p) => p.cards?.phobia && !p.cards.phobia.revealed);
+      if (!candidates.length) break;
+      const p = randomFrom(candidates);
+      updates[`players/${p.id}/cards/phobia/revealed`] = true;
+      logs.push(`Эффект события: фобия игрока ${p.name} раскрыта публично.`);
+      break;
+    }
+    case "family_reveal_all": {
+      alive.forEach((p) => { if (p.cards?.sexFamily) updates[`players/${p.id}/cards/sexFamily/revealed`] = true; });
+      logs.push("Эффект события: карты пола и потомства всех живых игроков раскрыты публично.");
+      break;
+    }
+    case "all_women": {
+      alive.forEach((p) => {
+        const old = p.cards.sexFamily || { revealed: false };
+        const card = {
+          type: "Пол и потомство",
+          title: "Женский пол, репродуктивный статус переписан событием",
+          description: "Событие раунда изменило половой профиль. Для долгого бункера это становится важным аргументом, но не гарантирует победу.",
+          revealed: old.revealed || false
+        };
+        patchCard(p.id, "sexFamily", card);
+      });
+      logs.push("Эффект события: все живые игроки получили женский вариант карты пола и потомства.");
+      break;
+    }
+    case "all_men": {
+      alive.forEach((p) => {
+        const old = p.cards.sexFamily || { revealed: false };
+        const card = {
+          type: "Пол и потомство",
+          title: "Мужской пол, репродуктивный статус переписан событием",
+          description: "Событие раунда изменило половой профиль. Для восстановления общества это может быть как плюсом, так и проблемой.",
+          revealed: old.revealed || false
+        };
+        patchCard(p.id, "sexFamily", card);
+      });
+      logs.push("Эффект события: все живые игроки получили мужской вариант карты пола и потомства.");
+      break;
+    }
+    case "potato_nerf": {
+      const potatoes = alive.filter((p) => p.cards.identity?.raceId === "potato");
+      potatoes.forEach((p) => {
+        const old = p.cards.body;
+        const body = { ...old, title: `Вялая проросшая картошка, ${old.height || "???"} см`, description: `${old.description} Событие “Картофельная вялость” переписало тело: мышцы ушли в ростки, авторитет упал, а еда начала смотреть подозрительно.` };
+        patchCard(p.id, "body", body);
+      });
+      updates[`effects/eventBuffs/potato_nerf_${round}`] = "Событие: все Картошки временно стали вялыми и менее убедительными.";
+      logs.push(potatoes.length ? `Эффект события: ${potatoes.map((p) => p.name).join(", ")} получили картофельный дебафф.` : "Эффект события: Картошек нет, поэтому вялость прошла мимо.");
       break;
     }
     default:
@@ -1007,7 +1549,7 @@ function render() {
   const settings = roomState.settings || {};
   const bunker = roomState.bunker || {};
 
-  roomStatus.textContent = `Игроков: ${players.length}/${settings.maxPlayers || "?"}. Живых: ${alivePlayers.length}. Мест в бункере: ${bunker.capacity || settings.bunkerSeats || "?"}. Ведущий: ${hostName}.`;
+  roomStatus.textContent = `Игроков: ${players.length}/${settings.maxPlayers || "?"}. Живых: ${alivePlayers.length}. Мест в бункере: ${bunker.capacity || settings.bunkerSeats || "?"}. Ведущий: ${hostName}. Голосование: ${isVotingOpen() ? "открыто" : "закрыто"}.`;
   hostPanel.classList.toggle("hidden", !isHost());
   eliminateTopBtn.classList.toggle("hidden", !isHost());
 
@@ -1021,6 +1563,7 @@ function render() {
         : `можно ${revealCount(me)}/${revealLimit()}`;
   aliveCountText.textContent = `${alivePlayers.length}/${players.length}`;
   cardsStateText.textContent = roomState.cardsGenerated ? "выданы" : "не выданы";
+  if (votePhaseText) votePhaseText.textContent = isVotingOpen() ? "открыто" : `закрыто до круга ${votingStartsAfter()}`;
   oneRevealHint.textContent = hasRevealedThisRound(me) ? "лимит раскрытия на круг" : `можно выбрать ${revealLimit() - revealCount(me)} карт.`;
 
   renderMyCards();
@@ -1031,6 +1574,7 @@ function render() {
   renderNotice();
   renderEffects();
   renderVoting(players);
+  renderSurvivalAnalysis(players);
   renderLog();
 }
 
@@ -1050,7 +1594,7 @@ function renderMyCards() {
   }
 
   const alreadyRevealedRound = hasRevealedThisRound(me);
-  phases.forEach((phase) => {
+  currentPhases().forEach((phase) => {
     const card = me.cards[phase.key];
     if (!card) return;
 
@@ -1166,10 +1710,10 @@ function renderPlayers(players) {
 
     let miniCards = "";
     if (player.cards) {
-      const opened = phases.filter((phase) => player.cards?.[phase.key]?.revealed).length;
+      const opened = currentPhases().filter((phase) => player.cards?.[phase.key]?.revealed).length;
       const pom = player.cards.pomidor;
       miniCards = `
-        <div class="mini-card"><strong>Открыто:</strong> ${opened}/${phases.length}</div>
+        <div class="mini-card"><strong>Открыто:</strong> ${opened}/${currentPhases().length}</div>
         <div class="mini-card"><strong>Статус:</strong> ${player.alive ? "в игре" : "выгнан"}</div>
         <div class="mini-card"><strong>Помидор:</strong> ${pom?.revealed ? `${escapeHtml(pom.title)}${pom.used ? " — использован" : ""}` : "закрыт"}</div>
       `;
@@ -1179,7 +1723,7 @@ function renderPlayers(players) {
 
     box.innerHTML = `
       <div class="player-head">
-        <span class="player-name">${escapeHtml(player.name)}</span>
+        <span class="player-name">${playerAvatarHtml(player)} ${escapeHtml(player.name)}</span>
         <span>${badges.map((b) => `<span class="badge">${escapeHtml(b)}</span>`).join("")}</span>
       </div>
       <div class="mini-cards">${miniCards}</div>
@@ -1193,12 +1737,12 @@ function renderStatsTable(players) {
     <tr>
       <th>Игрок</th>
       <th>Статус</th>
-      ${phases.map((phase) => `<th>${escapeHtml(phase.title)}</th>`).join("")}
+      ${currentPhases().map((phase) => `<th>${escapeHtml(phase.title)}</th>`).join("")}
     </tr>
   `;
 
   if (!players.length) {
-    statsTableBody.innerHTML = `<tr><td colspan="${phases.length + 2}">Пока игроков нет.</td></tr>`;
+    statsTableBody.innerHTML = `<tr><td colspan="${currentPhases().length + 2}">Пока игроков нет.</td></tr>`;
     return;
   }
 
@@ -1211,7 +1755,7 @@ function renderStatsTable(players) {
       isFrozen(player.id) ? "заморожен" : ""
     ].filter(Boolean).join(", ");
 
-    const cells = phases.map((phase) => {
+    const cells = currentPhases().map((phase) => {
       const card = player.cards?.[phase.key];
       if (!card) return `<td class="cell-hidden">не выдано</td>`;
       const used = card.used ? `<br><span class="cell-used">использовано</span>` : "";
@@ -1222,7 +1766,7 @@ function renderStatsTable(players) {
 
     return `
       <tr>
-        <td><strong>${escapeHtml(player.name)}</strong><br><span class="muted">${escapeHtml(badges || "игрок")}</span></td>
+        <td><strong>${playerAvatarHtml(player, "small")} ${escapeHtml(player.name)}</strong><br><span class="muted">${escapeHtml(badges || "игрок")}</span></td>
         <td>${player.alive ? "в игре" : "выгнан"}<br>${hasRevealedThisRound(player) ? "лимит раскрытия" : "ещё может раскрыть"}</td>
         ${cells}
       </tr>
@@ -1239,6 +1783,9 @@ function renderStory() {
       <h4 class="story-title">${escapeHtml(story.title)}</h4>
       <p class="story-line">${escapeHtml(story.intro)}</p>
       <p class="story-line"><strong>Почему надо прятаться:</strong> ${escapeHtml(story.outside || "Снаружи слишком опасно для долгого выживания.")}</p>
+      <p class="story-line"><strong>Сколько сидеть в бункере:</strong> ${escapeHtml(story.duration || "от 3 до 30 лет, зависит от катастрофы")}</p>
+      <p class="story-line"><strong>После выхода:</strong> ${escapeHtml(story.afterExit || "апокалипсис может продолжаться, нужен план выживания снаружи")}</p>
+      <p class="story-line"><strong>Кого ценить при этой катастрофе:</strong> ${(story.survivalFocus || []).map(escapeHtml).join(", ")}</p>
       <p class="story-line"><strong>Где бункер:</strong> ${escapeHtml(story.place)}</p>
       <p class="story-line"><strong>Проблема внутри:</strong> ${escapeHtml(story.problem)}</p>
       <p class="story-line"><strong>Цель:</strong> ${escapeHtml(story.goal)}</p>
@@ -1300,10 +1847,46 @@ function renderVoting(players) {
   voteTargets.innerHTML = "";
   voteResults.innerHTML = "";
   voteDetails.innerHTML = "";
+  if (voteControlBox) voteControlBox.innerHTML = "";
+
   const me = getMe();
   const alivePlayers = players.filter((p) => p.alive);
   const votes = roomState.votes || {};
   const myVote = votes[playerId]?.target;
+  const yesIds = voteStartYesIds();
+  const needed = requiredStartVotes();
+  const percent = earlyVotePercent();
+  const opensAt = votingStartsAfter();
+  const open = isVotingOpen();
+
+  if (forceStartVoteBtn) forceStartVoteBtn.classList.toggle("hidden", !isHost());
+  if (closeVotingBtn) closeVotingBtn.classList.toggle("hidden", !isHost());
+  if (forceStartVoteBtn) forceStartVoteBtn.disabled = open || !roomState.cardsGenerated;
+  if (closeVotingBtn) closeVotingBtn.disabled = !open;
+  if (requestStartVoteBtn) {
+    requestStartVoteBtn.disabled = open || !me?.alive || !!roomState.voteStartVotes?.[playerId] || !roomState.cardsGenerated;
+    requestStartVoteBtn.textContent = roomState.voteStartVotes?.[playerId] ? "Ты уже за досрочное голосование" : "Предложить голосование сейчас";
+  }
+
+  if (voteControlBox) {
+    voteControlBox.innerHTML = `
+      <div class="vote-status ${open ? "open" : "closed"}">
+        <strong>${open ? "Голосование открыто" : "Голосование закрыто"}</strong>
+        <span>${open ? "Можно голосовать за вылет." : `Откроется автоматически с круга ${opensAt}, либо раньше при ${percent}% голосов за запуск.`}</span>
+      </div>
+      <div class="vote-progress">
+        <span>Досрочный запуск: ${yesIds.length}/${needed} голосов за</span>
+        <div class="progress-bar"><i style="width:${Math.min(100, Math.round((yesIds.length / Math.max(1, needed)) * 100))}%"></i></div>
+      </div>
+      ${yesIds.length ? `<p class="small-note">За старт сейчас: ${yesIds.map(nameOf).join(", ")}</p>` : `<p class="small-note">Пока никто не просил досрочное голосование.</p>`}
+    `;
+  }
+
+  if (!open) {
+    voteTargets.innerHTML = `<p class="muted">Совет бункера ещё закрыт. Сейчас игроки раскрывают карты и спорят. Можно нажать “Предложить голосование сейчас”; если наберётся ${percent}% живых игроков, голосование откроется автоматически.</p>`;
+    renderVoteResultsAndDetails(votes);
+    return;
+  }
 
   alivePlayers
     .filter((p) => p.id !== playerId)
@@ -1325,6 +1908,10 @@ function renderVoting(players) {
     voteTargets.innerHTML = `<p class="muted">Ты заморожен и не можешь голосовать в этом раунде.</p>`;
   }
 
+  renderVoteResultsAndDetails(votes);
+}
+
+function renderVoteResultsAndDetails(votes) {
   const counts = getVoteCounts();
   if (!Object.keys(counts).length) {
     voteResults.innerHTML = `<p class="muted">Голосов пока нет.</p>`;
@@ -1347,6 +1934,122 @@ function renderVoting(players) {
   voteDetails.innerHTML = details.length
     ? details.map((line) => `<div class="vote-detail">${escapeHtml(line)}</div>`).join("")
     : `<p class="muted">Пока никто не проголосовал.</p>`;
+}
+
+
+function scoreText(text, storyText = "") {
+  const t = String(text || "").toLowerCase();
+  const s = String(storyText || "").toLowerCase();
+  let score = 0;
+  const plus = [
+    ["врач", 12], ["мед", 10], ["леч", 8], ["инжен", 12], ["ремонт", 10], ["фильтр", 12], ["вода", 6], ["еда", 8], ["агроном", 10], ["картош", 4], ["навига", 7], ["охот", 8], ["стро", 7], ["дисцип", 6], ["псих", 6], ["холодная голова", 8], ["иммунитет", 8], ["потомство возможно", 9], ["учить детей", 8], ["долгоср", 8]
+  ];
+  const minus = [
+    ["гни", -12], ["плесень", -9], ["смерт", -14], ["паралич", -9], ["слеп", -8], ["перелом", -8], ["лихорад", -10], ["инфек", -12], ["зависимость", -10], ["предатель", -10], ["ломает технику", -11], ["потомство невозможно", -7], ["боится", -4], ["страх", -4], ["не переносит детей", -8], ["хруп", -6], ["пани", -7]
+  ];
+  plus.forEach(([k, v]) => { if (t.includes(k)) score += v; });
+  minus.forEach(([k, v]) => { if (t.includes(k)) score += v; });
+  if (s.includes("вода") || s.includes("потоп") || s.includes("рыб")) {
+    if (t.includes("рыболюд") || t.includes("фильтр") || t.includes("вода") || t.includes("плав")) score += 10;
+    if (t.includes("страх воды")) score -= 14;
+  }
+  if (s.includes("темн") || s.includes("подзем")) {
+    if (t.includes("подземельник") || t.includes("ноч") || t.includes("темно")) score += 10;
+    if (t.includes("страх темноты")) score -= 14;
+  }
+  if (s.includes("контроль") || s.includes("экзам")) {
+    if (t.includes("учитель") || t.includes("память") || t.includes("дисцип")) score += 10;
+    if (t.includes("страх контроль")) score -= 14;
+  }
+  if (s.includes("плесень") || s.includes("лихорад")) {
+    if (t.includes("иммунитет") || t.includes("врач") || t.includes("санитар")) score += 10;
+    if (t.includes("лёг") || t.includes("инфек")) score -= 10;
+  }
+  return score;
+}
+
+function analyzeTeamSurvival(players) {
+  const alive = players.filter((p) => p.alive && p.cards);
+  const bunker = roomState.bunker || {};
+  const story = roomState.story || {};
+  const capacity = Number(bunker.capacity || roomState.settings?.bunkerSeats || alive.length || 1);
+  const storyText = [story.title, story.intro, story.outside, story.afterExit, ...(story.survivalFocus || [])].join(" ");
+  let base = 42;
+  const reasons = [];
+  const warnings = [];
+  if (!alive.length) return { percent: 0, reasons: ["Нет живых игроков с картами."], warnings: [], playerScores: [] };
+  if (alive.length > capacity) {
+    const penalty = Math.min(25, (alive.length - capacity) * 8);
+    base -= penalty;
+    warnings.push(`Живых ${alive.length}, мест ${capacity}. Лишние люди режут шанс на ${penalty}%.`);
+  } else {
+    base += 8;
+    reasons.push(`Команда помещается в бункер: ${alive.length}/${capacity}.`);
+  }
+  if (/30|20|лет/i.test(story.duration || "")) {
+    base -= 5;
+    warnings.push("Долгий срок бункера: важнее потомство, психика, еда и медицина.");
+  }
+  const playerScores = alive.map((p) => {
+    const text = Object.values(p.cards || {}).map((c) => `${c.title} ${c.description}`).join(" ");
+    const score = scoreText(text, storyText);
+    return { id: p.id, name: p.name, score };
+  });
+  const totalCardScore = playerScores.reduce((sum, p) => sum + p.score, 0);
+  base += Math.round(totalCardScore / Math.max(1, alive.length));
+  const allText = alive.map((p) => Object.values(p.cards || {}).map((c) => `${c.title} ${c.description}`).join(" ")).join(" ").toLowerCase();
+  const checks = [
+    ["медицина", ["врач", "мед", "леч", "уход за больными"], 10],
+    ["ремонт/инженерия", ["инжен", "ремонт", "генератор", "скотч", "стро"], 10],
+    ["еда", ["еда", "повар", "агроном", "семена", "картош", "охот"], 8],
+    ["вода/фильтрация", ["фильтр", "вода", "рыболюд"], 8],
+    ["психика", ["псих", "холодная голова", "сильная воля", "не конфликтует"], 8],
+    ["будущее/потомство", ["потомство возможно", "учить детей", "демограф"], 8]
+  ];
+  checks.forEach(([name, keys, value]) => {
+    if (keys.some((k) => allText.includes(k))) {
+      base += value;
+      reasons.push(`Есть важный блок: ${name}.`);
+    } else {
+      base -= Math.round(value / 1.5);
+      warnings.push(`Не хватает блока: ${name}.`);
+    }
+  });
+  const badSignals = ["гни", "инфек", "предатель", "ломает технику", "потомство невозможно", "не переносит детей", "страх воды", "страх темноты", "страх врачей"];
+  const badCount = badSignals.filter((k) => allText.includes(k)).length;
+  if (badCount) {
+    base -= badCount * 4;
+    warnings.push(`Опасных минусов в команде: ${badCount}.`);
+  }
+  const percent = clamp(base, 3, 97);
+  return { percent, reasons: reasons.slice(0, 8), warnings: warnings.slice(0, 8), playerScores };
+}
+
+async function calculateSurvivalAnalysis() {
+  if (!roomState?.cardsGenerated) return alert("Сначала сгенерируйте карты.");
+  const analysis = analyzeTeamSurvival(getPlayers());
+  await update(roomRef(), { survivalAnalysis: { ...analysis, at: Date.now() } });
+  await pushLog(`Анализ выживания пересчитан: шанс команды ${analysis.percent}%.`);
+}
+
+function renderSurvivalAnalysis(players) {
+  if (!survivalBox) return;
+  const analysis = roomState.survivalAnalysis || analyzeTeamSurvival(players);
+  const date = analysis.at ? new Date(analysis.at).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }) : "предпросчёт";
+  survivalBox.innerHTML = `
+    <div class="survival-score">
+      <span>Шанс выжить выбранной живой команде</span>
+      <strong>${escapeHtml(analysis.percent || 0)}%</strong>
+      <em>${escapeHtml(date)}</em>
+    </div>
+    <h4>Почему шанс такой</h4>
+    <ul>${(analysis.reasons || []).map((x) => `<li>${escapeHtml(x)}</li>`).join("") || "<li>Сильных плюсов пока мало или карты не выданы.</li>"}</ul>
+    <h4>Что ломает выживание</h4>
+    <ul>${(analysis.warnings || []).map((x) => `<li>${escapeHtml(x)}</li>`).join("") || "<li>Критичных минусов анализ не увидел.</li>"}</ul>
+    <h4>Вклад игроков</h4>
+    <div class="vote-results">${(analysis.playerScores || []).sort((a,b)=>b.score-a.score).map((p) => { const pl = (roomState.players || {})[p.id]; return `<div class="vote-row"><strong>${playerAvatarHtml(pl, "small")} ${escapeHtml(p.name)}</strong><span>${p.score > 0 ? "+" : ""}${escapeHtml(p.score)} к шансу</span></div>`; }).join("") || "<p class='muted'>Нет данных по игрокам.</p>"}</div>
+    <p class="muted">Это не абсолютная истина, а игровой анализ по ключевым словам карт, катастрофе, вместимости бункера и проблемам команды. Его можно использовать как аргумент в споре.</p>
+  `;
 }
 
 function renderLog() {
@@ -1394,5 +2097,37 @@ generateBunkerBtn.addEventListener("click", generateNewBunker);
 generateEventBtn.addEventListener("click", generateNewEvent);
 resetVotesBtn.addEventListener("click", resetVotes);
 eliminateTopBtn.addEventListener("click", eliminateTop);
+if (requestStartVoteBtn) requestStartVoteBtn.addEventListener("click", requestStartVoting);
+if (forceStartVoteBtn) forceStartVoteBtn.addEventListener("click", hostOpenVoting);
+if (closeVotingBtn) closeVotingBtn.addEventListener("click", hostCloseVoting);
+if (analyzeSurvivalBtn) analyzeSurvivalBtn.addEventListener("click", calculateSurvivalAnalysis);
+if (ageGateConfirmBtn) ageGateConfirmBtn.addEventListener("click", () => {
+  const age = Number(ageGateAgeInput?.value || 0);
+  const answer = Number(ageGateAnswerInput?.value || NaN);
+  if (age < 18) return alert("Для 18+ режима нужно подтвердить возраст 18+.");
+  if (answer !== currentAgeGateAnswer) return alert("Ван Зошит не принял ответ. Подсказка: результат всегда 5.");
+  sessionStorage.setItem("vz_adult_confirmed", "yes");
+  resolveAdultGate(true);
+});
+if (ageGateCancelBtn) ageGateCancelBtn.addEventListener("click", () => resolveAdultGate(false));
+if (ageGateModal) ageGateModal.addEventListener("click", (event) => {
+  if (event.target === ageGateModal) resolveAdultGate(false);
+});
+if (personalizationBtn) personalizationBtn.addEventListener("click", openProfileModal);
+if (closeProfileBtn) closeProfileBtn.addEventListener("click", closeProfileModal);
+if (saveProfileBtn) saveProfileBtn.addEventListener("click", saveProfile);
+if (profileModal) profileModal.addEventListener("click", (event) => {
+  if (event.target === profileModal) closeProfileModal();
+});
+if (themeSelect) themeSelect.addEventListener("change", () => { userProfile.theme = themeSelect.value; applyProfile(); });
+if (accentSelect) accentSelect.addEventListener("change", () => { userProfile.accent = accentSelect.value; applyProfile(); });
+if (sfxToggleInput) sfxToggleInput.addEventListener("change", () => { userProfile.sfx = sfxToggleInput.checked; saveProfileLocal(); applyProfile(); });
+if (musicToggleInput) musicToggleInput.addEventListener("change", () => { userProfile.music = musicToggleInput.checked; saveProfileLocal(); applyProfile(); });
+if (musicToggleBtn) musicToggleBtn.addEventListener("click", toggleMenuMusic);
+document.addEventListener("click", (event) => {
+  if (event.target?.closest?.("button")) playUiSound("click");
+}, true);
+
+applyProfile();
 
 initFirebase();
