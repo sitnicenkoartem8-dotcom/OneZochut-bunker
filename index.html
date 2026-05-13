@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Бункер: Ван Зошит</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="page-shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">мультиплеерная браузерная игра</p>
+        <h1>Бункер: Ван Зошит</h1>
+        <p class="subtitle">Лобби, карты, бредовые Помидоры, рабочие способности, бункер, катастрофа, голосование и лорные события в стиле One Zoshyt.</p>
+      </div>
+      <div class="hero-card">
+        <span class="glitch">ВЗ</span>
+        <p>Реальность переписана. Мест в бункере меньше, чем живых.</p>
+      </div>
+    </header>
+
+    <main>
+      <section id="setupView" class="panel setup-panel">
+        <h2>Войти в игру</h2>
+        <p class="muted">Для создания комнаты введи только ник. Код нужен только для входа в уже созданное лобби.</p>
+        <div id="firebaseWarning" class="warning hidden"></div>
+        <div class="form-grid">
+          <label>
+            Твой ник
+            <input id="playerNameInput" maxlength="22" placeholder="Например: Саня" />
+          </label>
+          <label>
+            Код комнаты
+            <input id="roomCodeInput" maxlength="8" placeholder="Например: Z482" />
+          </label>
+        </div>
+        <div class="actions">
+          <button id="createRoomBtn" class="primary">Создать комнату</button>
+          <button id="joinRoomBtn">Войти по коду</button>
+        </div>
+        <details class="rules-preview">
+          <summary>Что работает в этой версии?</summary>
+          <ul>
+            <li>Настройки комнаты перед созданием: максимум игроков, места в бункере, сколько карт можно раскрыть за круг.</li>
+            <li>Онлайн-комнаты через Firebase Realtime Database.</li>
+            <li>Игрок видит свои карты сразу после генерации, но для остальных они закрыты.</li>
+            <li>В каждом круге можно раскрыть любую карту, а не строго по очереди.</li>
+            <li>Рабочие кнопки Помидоров: защита, кража голосов, заморозка, дуэль, перемешивание багажа, омоложение и т.д.</li>
+            <li>События раунда теперь реально меняют игру: места в бункере, мутации, дебаффы, раскрытия, блокировку Помидоров.</li>
+            <li>Новая карта “Характер” и замена “Секрета” на “Фобию”.</li>
+            <li>Отдельные вкладки: мои карты, таблица игроков, катастрофа, бункер, голосование, эффекты и лог.</li>
+          </ul>
+        </details>
+      </section>
+
+      <section id="gameView" class="hidden">
+        <div id="noticeToast" class="notice-toast" role="status" aria-live="polite"></div>
+        <div class="room-top panel">
+          <div>
+            <p class="eyebrow">код комнаты</p>
+            <h2 id="roomCodeTitle">----</h2>
+            <p id="roomStatus">Ожидание игроков...</p>
+          </div>
+          <div class="room-actions">
+            <button id="copyRoomBtn">Скопировать код</button>
+            <button id="leaveRoomBtn" class="danger-light">Выйти</button>
+          </div>
+        </div>
+
+        <section class="panel host-panel" id="hostPanel">
+          <div>
+            <p class="eyebrow">панель ведущего</p>
+            <h3>Управление игрой</h3>
+          </div>
+          <div class="host-actions">
+            <button id="generateCardsBtn" class="primary">Сгенерировать карты всем</button>
+            <button id="nextRevealRoundBtn">Новый круг раскрытия</button>
+            <button id="generateStoryBtn">Катастрофа</button>
+            <button id="generateBunkerBtn">Бункер</button>
+            <button id="generateEventBtn">Событие раунда</button>
+            <button id="resetVotesBtn">Сбросить голоса</button>
+          </div>
+        </section>
+
+        <section class="panel quick-panel">
+          <div class="quick-stat">
+            <span>Круг раскрытия</span>
+            <strong id="revealRoundText">—</strong>
+          </div>
+          <div class="quick-stat">
+            <span>Твоё раскрытие</span>
+            <strong id="myRevealState">—</strong>
+          </div>
+          <div class="quick-stat">
+            <span>Живых игроков</span>
+            <strong id="aliveCountText">—</strong>
+          </div>
+          <div class="quick-stat">
+            <span>Карты</span>
+            <strong id="cardsStateText">—</strong>
+          </div>
+        </section>
+
+        <nav class="tabbar panel" aria-label="Разделы игры">
+          <button class="tab-btn active" data-tab="cardsTab">Мои карты</button>
+          <button class="tab-btn" data-tab="tableTab">Таблица игроков</button>
+          <button class="tab-btn" data-tab="storyTab">Катастрофа</button>
+          <button class="tab-btn" data-tab="bunkerTab">Бункер</button>
+          <button class="tab-btn" data-tab="voteTab">Голосование</button>
+          <button class="tab-btn" data-tab="effectsTab">Эффекты</button>
+          <button class="tab-btn" data-tab="logTab">Лог</button>
+        </nav>
+
+        <section id="cardsTab" class="tab-view active">
+          <div class="grid-layout">
+            <div class="panel wide-panel">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">личная карточка</p>
+                  <h3>Твои карты</h3>
+                </div>
+                <span id="oneRevealHint" class="pill">1 карта за круг</span>
+              </div>
+              <p class="muted">Ты видишь все свои карты сразу. Для других игроков карта станет видна только после “Раскрыть публично”. Помидор можно применить кнопкой на своей карте.</p>
+              <div id="myCards" class="cards"></div>
+            </div>
+
+            <div class="panel">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">лобби</p>
+                  <h3>Игроки</h3>
+                </div>
+              </div>
+              <div id="playersList" class="players-list"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="tableTab" class="tab-view">
+          <div class="panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">общая таблица</p>
+                <h3>Кто что уже раскрыл</h3>
+              </div>
+            </div>
+            <p class="muted">В твоей строке скрытые карты показываются тебе, но помечены как “не раскрыто”. У чужих игроков скрытое остаётся закрытым.</p>
+            <div class="table-wrap">
+              <table class="stats-table">
+                <thead id="statsTableHead"></thead>
+                <tbody id="statsTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section id="storyTab" class="tab-view">
+          <div class="grid-layout story-grid">
+            <div class="panel">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">катастрофа</p>
+                  <h3>Почему все прячутся?</h3>
+                </div>
+                <button id="copyStoryBtn">Скопировать катастрофу</button>
+              </div>
+              <div id="storyBox" class="story-box"></div>
+            </div>
+            <div class="panel">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">ивент</p>
+                  <h3>Событие раунда</h3>
+                </div>
+              </div>
+              <div id="eventBox" class="story-box compact"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="bunkerTab" class="tab-view">
+          <div class="panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">убежище</p>
+                <h3>Бункер, комнаты и предметы</h3>
+              </div>
+              <button id="copyBunkerBtn">Скопировать бункер</button>
+            </div>
+            <div id="bunkerBox" class="story-box"></div>
+          </div>
+        </section>
+
+        <section id="voteTab" class="tab-view">
+          <div class="panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">совет бункера</p>
+                <h3>Голосование</h3>
+              </div>
+              <button id="eliminateTopBtn" class="danger">Выгнать лидера голосования</button>
+            </div>
+            <p class="muted">Нажми кнопку игрока, чтобы проголосовать против него. Голоса и направления видны всем. Помидоры могут красть голоса, запрещать голосовать против игрока или спасать от вылета.</p>
+            <div id="voteTargets" class="vote-targets"></div>
+            <h4>Итог голосов</h4>
+            <div id="voteResults" class="vote-results"></div>
+            <h4>Кто за кого голосует</h4>
+            <div id="voteDetails" class="vote-results"></div>
+          </div>
+        </section>
+
+        <section id="effectsTab" class="tab-view">
+          <div class="panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">активные эффекты</p>
+                <h3>Что сейчас влияет на игру</h3>
+              </div>
+            </div>
+            <div id="activeEffectsBox" class="effects-box"></div>
+          </div>
+        </section>
+
+        <section id="logTab" class="tab-view">
+          <div class="panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">журнал</p>
+                <h3>Лог комнаты</h3>
+              </div>
+            </div>
+            <div id="roomLog" class="log"></div>
+          </div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <div id="settingsModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card panel">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">создание комнаты</p>
+          <h3>Настройки лобби</h3>
+        </div>
+        <button id="closeSettingsBtn" class="danger-light">Закрыть</button>
+      </div>
+      <div class="form-grid settings-grid">
+        <label>
+          Максимум игроков в лобби
+          <input id="maxPlayersInput" type="number" min="2" max="30" value="8" />
+        </label>
+        <label>
+          Мест в бункере
+          <input id="bunkerSeatsInput" type="number" min="1" max="30" value="4" />
+        </label>
+        <label>
+          Сколько карт можно раскрыть за круг
+          <input id="revealLimitInput" type="number" min="1" max="3" value="1" />
+        </label>
+        <label>
+          Режим бреда
+          <select id="memeModeSelect">
+            <option value="normal">Нормальный: меньше мемов, больше выживания</option>
+            <option value="meme" selected>Мемный: приколы + нормальная игра</option>
+            <option value="chaos">Бредовый хаос: события и карты сходят с ума</option>
+          </select>
+        </label>
+      </div>
+      <p class="muted">Совет: мест в бункере делай меньше, чем игроков. Тогда появится смысл спорить, голосовать и выгонять.</p>
+      <button id="confirmCreateRoomBtn" class="primary">Создать лобби с этими настройками</button>
+    </div>
+  </div>
+
+  <template id="cardTemplate">
+    <article class="game-card">
+      <div class="card-top">
+        <span class="card-type"></span>
+        <span class="card-state"></span>
+      </div>
+      <h4></h4>
+      <p></p>
+      <button class="reveal-card-btn">Раскрыть публично</button>
+    </article>
+  </template>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
